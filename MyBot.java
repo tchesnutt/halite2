@@ -2,8 +2,8 @@ import hlt.*;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Map;
 import java.util.List;
+import static java.util.stream.Collectors.toList;
 
 public class MyBot {
 
@@ -20,25 +20,110 @@ public class MyBot {
         Log.log(initialMapIntelligence);
 
         // Initialize
+	    int width = gameMap.getWidth();
+	    int height = gameMap.getHeight();
+	    final HashMap<Integer, Position> cornerShip = new HashMap<>();
+	    HashMap<Integer, Position> fourCorners = new HashMap<>();
+	    fourCorners.put(0, new Position(0,0));
+	    fourCorners.put(1, new Position(0,height));
+	    fourCorners.put(2, new Position(width,height));
+	    fourCorners.put(3, new Position(width,0));
         final ArrayList<Move> moveList = new ArrayList<>();
-        final HashMap<Integer, Position> shipTargets = new HashMap<>();
+        final HashMap<Integer, Position> shipTargetsDocked = new HashMap<>();
+        final HashMap<Integer, Ship> shipTargets = new HashMap<>();
         final HashMap<Integer, Position> planetTargets = new HashMap<>();
         final HashMap<Integer, Integer> planetTag = new HashMap<>();
-
+        final HashMap<Integer, Ship> attackShips = new HashMap<>();
         int myId = gameMap.getMyPlayer().getId();
+        int minAttackShips = 4 - gameMap.getAllPlayers().size();
+        final List<Player> enemyList = gameMap.getAllPlayers().stream()
+                .filter(p -> p.getId() != myId)
+                .collect(toList());
+        int attackingShipsCount = 0;
+        int currentPlayerTarget = 0;
+        int corShip = 0;
+
         for (;;) {
             moveList.clear();
             networking.updateMap(gameMap);
+//            boolean fullHouse = false;
+//            if(!fullHouse){
+//                fullHouse = fullHouse(gameMap);
+//            }
             boolean fullHouse = fullhouse(gameMap);
             for (final Ship ship : gameMap.getMyPlayer().getShips().values()) {
-                if (ship.getDockingStatus() != Ship.DockingStatus.Undocked) {
-                    continue;
-                }
+	            if (ship.getDockingStatus() != Ship.DockingStatus.Undocked) {
+		            continue;
+	            }
+
+            	if (gameMap.getMyPlayer().getShips().size() >= 10) {
+            		if(cornerShip.size() == 0){
+			            Position target = nearestCorner(fourCorners, gameMap, ship);
+			            cornerShip.put(ship.getId(), target);
+			            corShip = ship.getId();
+			            final ThrustMove newThrustMove = Navigation.navigateShipTowardsTarget(
+					            gameMap,
+					            ship,
+					            target,
+					            Constants.MAX_SPEED,
+					            true,
+					            Constants.MAX_NAVIGATION_CORRECTIONS,
+					            Math.PI/180.0
+			            );
+			            if (newThrustMove != null){
+				            moveList.add(newThrustMove);
+			            }
+			            continue;
+		            } else {
+            			if(gameMap.getShip(myId, corShip) == null){
+            				cornerShip.remove(corShip);
+				            Position target = nearestCorner(fourCorners, gameMap, ship);
+				            cornerShip.put(ship.getId(), target);
+				            corShip = ship.getId();
+				            final ThrustMove newThrustMove = Navigation.navigateShipTowardsTarget(
+						            gameMap,
+						            ship,
+						            target,
+						            Constants.MAX_SPEED,
+						            true,
+						            Constants.MAX_NAVIGATION_CORRECTIONS,
+						            Math.PI/180.0
+				            );
+				            if (newThrustMove != null){
+					            moveList.add(newThrustMove);
+				            }
+				            continue;
+			            } else {
+            				if(ship.getId() == corShip){
+					            final ThrustMove newThrustMove = Navigation.navigateShipTowardsTarget(
+							            gameMap,
+							            ship,
+							            cornerShip.get(corShip),
+							            Constants.MAX_SPEED,
+							            true,
+							            Constants.MAX_NAVIGATION_CORRECTIONS,
+							            Math.PI/180.0
+					            );
+					            if (newThrustMove != null){
+						            moveList.add(newThrustMove);
+					            }
+					            continue;
+				            }
+			            }
+		            }
+
+            	}
+                //if all planets are taken change strat
                 if(fullHouse == true){
                     planetTargets.clear();
-                    if(shipTargets.get(ship.getId()) == null) {
+                    //if ship has no target
+                    if(shipTargetsDocked.get(ship.getId()) == null) {
+                    	if(ship.getId() == corShip) {
+		                    continue;
+	                    }
+                        //find the closest enemy planet and target docked ships
                         Position newTarget = findTarget(gameMap, ship, myId, fullHouse);
-                        shipTargets.put(ship.getId(), newTarget);
+                        shipTargetsDocked.put(ship.getId(), newTarget);
                         final ThrustMove attackDockedShips = Navigation.navigateShipTowardsTarget(
                                 gameMap,
                                 ship,
@@ -52,10 +137,12 @@ public class MyBot {
                             moveList.add(attackDockedShips);
                         }
                     } else {
-                        if(reachedShip(ship, shipTargets.get(ship.getId()))){
+                        //if ship has reached target
+                        if(reachedShip(ship, shipTargetsDocked.get(ship.getId()))){
+                            //find new target
                             Position newTarget = findTarget(gameMap, ship, myId, fullHouse);
-                            shipTargets.remove(ship.getId());
-                            shipTargets.put(ship.getId(), newTarget);
+                            shipTargetsDocked.remove(ship.getId());
+                            shipTargetsDocked.put(ship.getId(), newTarget);
                             final ThrustMove attackDockedShips = Navigation.navigateShipTowardsTarget(
                                     gameMap,
                                     ship,
@@ -69,10 +156,11 @@ public class MyBot {
                                 moveList.add(attackDockedShips);
                             }
                         } else {
+                            //continue attack
                             final ThrustMove attackDockedShips = Navigation.navigateShipTowardsTarget(
                                     gameMap,
                                     ship,
-                                    shipTargets.get(ship.getId()),
+                                    shipTargetsDocked.get(ship.getId()),
                                     Constants.MAX_SPEED,
                                     true,
                                     Constants.MAX_NAVIGATION_CORRECTIONS,
@@ -84,39 +172,90 @@ public class MyBot {
                         }
                     }
                 } else {
-                    if(planetTargets.get(ship.getId()) == null) {
-                        Integer targetPlanetId = identifyPlanet(gameMap, ship, myId, fullHouse);
-                        Position targetPlanet = findPlanet(gameMap, targetPlanetId, ship);
-                        planetTargets.put(ship.getId(), targetPlanet);
-                        planetTag.put(ship.getId(), targetPlanetId);
+                    if(attackingShipsCount < minAttackShips){
+                        int enemyId = enemyList.get(0).getId();
+                        Ship enemyShip = targetAEnemyShip(gameMap, ship, enemyId);
+                        shipTargets.put(ship.getId(), enemyShip);
+                        attackShips.put(ship.getId(), ship);
+                        attackingShipsCount++;
+                    }
+                    if(attackShips.get(ship.getId()) != null) {
+                        int enemyId = enemyList.get(0).getId();
+                        Ship enemyShip = targetAEnemyShip(gameMap, ship, enemyId);
+                        shipTargets.put(ship.getId(), enemyShip);
+                        int enemyShipId = shipTargets.get(ship.getId()).getOwner();
+                        int shipId = shipTargets.get(ship.getId()).getId();
+                        Ship targetShip = gameMap.getShip(enemyShipId, shipId);
+
                         final ThrustMove newThrustMove = Navigation.navigateShipTowardsTarget(
                                 gameMap,
                                 ship,
-                                targetPlanet,
-                                Constants.MAX_SPEED,
+                                ship.getClosestPoint(targetShip),
+		                        Constants.MAX_SPEED,
                                 true,
                                 Constants.MAX_NAVIGATION_CORRECTIONS,
                                 Math.PI/180.0
                         );
-                        if (newThrustMove != null) {
+                        Log.log("hi");
+                        if (newThrustMove != null){
                             moveList.add(newThrustMove);
                         }
                     } else {
-                        if(ship.canDock(gameMap.getPlanet(planetTag.get(ship.getId())))){
-                            Planet reachedPlanet = gameMap.getPlanet(planetTag.get(ship.getId()));
-                            if(reachedPlanet.getDockingSpots() > reachedPlanet.getDockedShips().size()){
-                                moveList.add(new DockMove(ship, gameMap.getPlanet(planetTag.get(ship.getId()))));
-                                planetTag.remove(ship.getId());
-                                planetTargets.remove(ship.getId());
+                        //if ship has no docking target
+                        if(planetTargets.get(ship.getId()) == null) {
+                            //find closest planet
+                            Integer targetPlanetId = identifyPlanet(gameMap, ship, myId, fullHouse);
+                            Position targetPlanet = findPlanet(gameMap, targetPlanetId, ship);
+                            planetTargets.put(ship.getId(), targetPlanet);
+                            planetTag.put(ship.getId(), targetPlanetId);
+                            //move to planet
+                            final ThrustMove newThrustMove = Navigation.navigateShipTowardsTarget(
+                                    gameMap,
+                                    ship,
+                                    targetPlanet,
+                                    Constants.MAX_SPEED,
+                                    true,
+                                    Constants.MAX_NAVIGATION_CORRECTIONS,
+                                    Math.PI/180.0
+                            );
+                            if (newThrustMove != null) {
+                                moveList.add(newThrustMove);
+                            }
+                        } else {
+                            //is ship close enought to dock?
+                            if(ship.canDock(gameMap.getPlanet(planetTag.get(ship.getId())))){
+                                Planet reachedPlanet = gameMap.getPlanet(planetTag.get(ship.getId()));
+                                //are their docking spots?
+                                if(reachedPlanet.getDockingSpots() > reachedPlanet.getDockedShips().size()){
+                                    //if so dock with planet and remove it from planet targets
+                                    moveList.add(new DockMove(ship, gameMap.getPlanet(planetTag.get(ship.getId()))));
+                                    planetTag.remove(ship.getId());
+                                    planetTargets.remove(ship.getId());
+                                } else {
+                                    //if no docking spots: find closest unclaimed planet and fly there
+                                    Integer targetPlanetId = identifyPlanet(gameMap, ship, myId, fullHouse);
+                                    Position targetPlanet = findPlanet(gameMap, targetPlanetId, ship);
+                                    planetTargets.put(ship.getId(), targetPlanet);
+                                    planetTag.put(ship.getId(), targetPlanetId);
+                                    final ThrustMove newThrustMove = Navigation.navigateShipTowardsTarget(
+                                            gameMap,
+                                            ship,
+                                            targetPlanet,
+                                            Constants.MAX_SPEED,
+                                            true,
+                                            Constants.MAX_NAVIGATION_CORRECTIONS,
+                                            Math.PI/180.0
+                                    );
+                                    if (newThrustMove != null) {
+                                        moveList.add(newThrustMove);
+                                    }
+                                }
                             } else {
-                                Integer targetPlanetId = identifyPlanet(gameMap, ship, myId, fullHouse);
-                                Position targetPlanet = findPlanet(gameMap, targetPlanetId, ship);
-                                planetTargets.put(ship.getId(), targetPlanet);
-                                planetTag.put(ship.getId(), targetPlanetId);
+                                //continue moves
                                 final ThrustMove newThrustMove = Navigation.navigateShipTowardsTarget(
                                         gameMap,
                                         ship,
-                                        targetPlanet,
+                                        planetTargets.get(ship.getId()),
                                         Constants.MAX_SPEED,
                                         true,
                                         Constants.MAX_NAVIGATION_CORRECTIONS,
@@ -126,21 +265,9 @@ public class MyBot {
                                     moveList.add(newThrustMove);
                                 }
                             }
-                        } else {
-                            final ThrustMove newThrustMove = Navigation.navigateShipTowardsTarget(
-                                    gameMap,
-                                    ship,
-                                    planetTargets.get(ship.getId()),
-                                    Constants.MAX_SPEED,
-                                    true,
-                                    Constants.MAX_NAVIGATION_CORRECTIONS,
-                                    Math.PI/180.0
-                            );
-                            if (newThrustMove != null) {
-                                moveList.add(newThrustMove);
-                            }
                         }
                     }
+
 
                 }
             }
@@ -235,5 +362,28 @@ public class MyBot {
             return true;
         }
         return false;
+    }
+
+    public static Ship targetAEnemyShip(GameMap gameMap, Ship ship, int enemyId) {
+        int enemyShipId = gameMap.getPlayer(enemyId).getShips().keySet().toArray(new Integer[gameMap.getPlayer(enemyId).getShips().keySet().size()])[0];
+        return gameMap.getShip(enemyId, enemyShipId);
+    }
+
+    public static Position nearestCorner(HashMap<Integer, Position> fourCorners, GameMap gameMap, Ship ship) {
+	    double min = gameMap.getWidth();
+	    if(gameMap.getHeight() > min) {
+		    min = gameMap.getHeight();
+	    }
+	    Position result = new Position(0,0);
+	    double cX = ship.getXPos();
+	    double cY = ship.getYPos();
+	    for(final Position corner : fourCorners.values()) {
+		    double temp = Math.hypot(cX - corner.getXPos(), cY - corner.getYPos());
+		    if (min > temp) {
+			    min = temp;
+			    result = corner;
+		    }
+	    }
+        return result;
     }
 }

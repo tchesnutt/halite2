@@ -3,7 +3,6 @@ package hlt;
 public class Ship extends Entity {
 
     public enum DockingStatus { Undocked, Docking, Docked, Undocking }
-
     private final DockingStatus dockingStatus;
     private final int dockedPlanet;
     private final int dockingProgress;
@@ -20,6 +19,7 @@ public class Ship extends Entity {
         this.dockingProgress = dockingProgress;
         this.weaponCooldown = weaponCooldown;
     }
+
 
     public int getWeaponCooldown() {
         return weaponCooldown;

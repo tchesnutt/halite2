@@ -42,6 +42,8 @@ public class GameMap {
         return playerId;
     }
 
+    public Player getPlayer(int playerId) { return players.get(playerId); }
+
     public List<Player> getAllPlayers() {
         return playersUnmodifiable;
     }

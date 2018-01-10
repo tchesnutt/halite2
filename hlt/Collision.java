@@ -15,7 +15,12 @@ public class Collision {
         // and substitute into the equation of a circle
         // Solve for t
         final double circleRadius = circle.getRadius();
+//        if (circle.getDockingStatus() != circle.DockingStatus.Undocked) {
+//            circleRadius = circleRadius * 2;
+//        }
+
         final double startX = start.getXPos();
+
         final double startY = start.getYPos();
         final double endX = end.getXPos();
         final double endY = end.getYPos();
